@@ -29,6 +29,8 @@ namespace Ryujinx.Graphics.Shader.Instructions
             x(0x98e, InstName.Red, ARed, N, writesRd: false);
             x(0x9a8, InstName.Atom, AAtomg, N);
             x(0x3a8, InstName.Atom, AAtomg, N);
+            x(0x9a9, InstName.Atom, AAtomgCas, N);
+            x(0x3a9, InstName.Atom, AAtomgCas, N);
             x(AmpereOpcodes.Ldl, InstName.Ldl, ALdLocalShared, N);
             x(0x984, InstName.Lds, ALdLocalShared, N);
             x(0x387, InstName.Stl, AStLocalShared, N, writesRd: false);
@@ -365,6 +367,20 @@ namespace Ryujinx.Graphics.Shader.Instructions
             Operand res = EmitAtomicOp(context, StorageKind.GlobalMemory, (AtomOp)x.Bits(87, 91), (AtomSize)x.Bits(73, 76), lo, hi, Register(x.Rb, RegisterType.Gpr));
 
             ASet(context, x, res);
+        }
+
+        // ATOM.CAS Rd, [Ra (+Ra+1)], Rb (expected), Rc (new value): the global form of ATOMS.CAS above (0x3a9 with a register address, 0x9a9 with the immediate-offset form). The Legend of
+        // Zelda: Ocarina of Time's foliage compute shaders end a retry loop with it the way Fortune's Weave's shared one does (ISETP of Rd against RZ right after), so Rd is 1 when the
+        // swap happened, as ATOMS.CAS gives; the 32-bit size is the only one seen
+        public static void AAtomgCas(EmitterContext context)
+        {
+            AmpereOp x = new(context.CurrOp);
+            (Operand lo, Operand hi) = AGlobalAddress(context, x, 70, 64, 0);
+            Operand expected = context.Copy(x.Rb >= RegisterConsts.RegisterZeroIndex ? Const(0) : Register(x.Rb, RegisterType.Gpr));
+            Operand value = x.Rc >= RegisterConsts.RegisterZeroIndex ? Const(0) : Register(x.Rc, RegisterType.Gpr);
+            Operand old = context.AtomicCompareAndSwap(StorageKind.GlobalMemory, lo, hi, expected, value);
+
+            ASet(context, x, context.ConditionalSelect(context.ICompareEqual(old, expected), Const(1), Const(0)));
         }
 
         // MEMBAR: the order of this thread's memory operations
